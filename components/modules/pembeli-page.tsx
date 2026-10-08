@@ -13,8 +13,10 @@ import {
   Trash2,
   AlertTriangle,
   X,
+  RotateCcw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { CardListSkeleton, EmptyStateView, ErrorStateView } from "@/components/ui/state-views"
 import type { PembeliDoc } from "@/types/pembeli"
 
 // Data awal menggunakan contoh dokumen pembeli/081355512345 dari Skema Firestore
@@ -45,6 +47,16 @@ export function PembeliPage({
   const [editingPembeli, setEditingPembeli] = useState<PembeliDoc | null>(null)
   const [deletingPembeli, setDeletingPembeli] = useState<PembeliDoc | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isError, setIsError] = useState(false)
+
+  const handleRetry = () => {
+    setIsLoading(true)
+    setIsError(false)
+    setTimeout(() => {
+      setIsLoading(false)
+    }, 400)
+  }
 
   // Form state persis sesuai field skema: nama, no_whatsapp, email
   const [formData, setFormData] = useState({
@@ -475,41 +487,27 @@ export function PembeliPage({
           </div>
 
           {/* Daftar Kartu Pembeli */}
-          {filteredPembeli.length === 0 ? (
-            <div className="flex min-h-[240px] flex-col items-center justify-center rounded-xl border border-dashed border-border p-6 text-center">
-              <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <Users className="size-6" />
-              </div>
-              <h3 className="mt-3 text-sm font-semibold">
-                {searchQuery ? "Pembeli tidak ditemukan" : "Belum ada pembeli"}
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground max-w-xs">
-                {searchQuery
+          {isError ? (
+            <ErrorStateView
+              title="Gagal Memuat Pembeli"
+              message="Terjadi kendala saat membaca data koleksi pembeli. Silakan coba lagi."
+              onRetry={handleRetry}
+            />
+          ) : isLoading ? (
+            <CardListSkeleton count={2} />
+          ) : filteredPembeli.length === 0 ? (
+            <EmptyStateView
+              icon={Users}
+              title={searchQuery ? "Pembeli tidak ditemukan" : "Belum ada pembeli"}
+              description={
+                searchQuery
                   ? `Tidak ada data pembeli yang cocok dengan kata kunci "${searchQuery}".`
-                  : "Daftar pembeli masih kosong. Tambahkan pembeli baru untuk mulai mencatat tiket."}
-              </p>
-              <div className="mt-4">
-                {searchQuery ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSearchQuery("")}
-                    className="cursor-pointer"
-                  >
-                    Reset Pencarian
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={handleOpenAddForm}
-                    className="gap-1.5 cursor-pointer"
-                  >
-                    <UserPlus className="size-3.5" />
-                    Tambah Pembeli
-                  </Button>
-                )}
-              </div>
-            </div>
+                  : "Daftar pembeli masih kosong. Tambahkan pembeli baru untuk mulai mencatat tiket."
+              }
+              actionLabel={searchQuery ? "Reset Pencarian" : "Tambah Pembeli"}
+              actionIcon={searchQuery ? RotateCcw : UserPlus}
+              onAction={searchQuery ? () => setSearchQuery("") : handleOpenAddForm}
+            />
           ) : (
             <div className="grid gap-3 sm:grid-cols-1">
               {filteredPembeli.map((p) => (

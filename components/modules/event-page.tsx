@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { CardListSkeleton, EmptyStateView, ErrorStateView } from "@/components/ui/state-views"
 import { generateId } from "@/lib/id"
 import type { EventDoc } from "@/types/event"
 
@@ -45,6 +46,16 @@ export function EventPage({ events: propEvents, setEvents: propSetEvents }: Even
   const [editingEvent, setEditingEvent] = useState<EventDoc | null>(null)
   const [deletingEvent, setDeletingEvent] = useState<EventDoc | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isError, setIsError] = useState(false)
+
+  const handleRetry = () => {
+    setIsLoading(true)
+    setIsError(false)
+    setTimeout(() => {
+      setIsLoading(false)
+    }, 400)
+  }
 
   // Form State menggunakan nama field persis seperti skema
   const [formData, setFormData] = useState({
@@ -505,27 +516,24 @@ export function EventPage({ events: propEvents, setEvents: propSetEvents }: Even
       ) : (
         /* TAMPILAN DAFTAR EVENT */
         <div className="space-y-4">
-          {events.length === 0 ? (
+          {isError ? (
+            <ErrorStateView
+              title="Gagal Memuat Event"
+              message="Terjadi kendala saat membaca data koleksi event. Silakan coba lagi."
+              onRetry={handleRetry}
+            />
+          ) : isLoading ? (
+            <CardListSkeleton count={2} />
+          ) : events.length === 0 ? (
             /* Empty state (Acceptance Criteria 5.1 No 2) */
-            <div className="flex min-h-[260px] flex-col items-center justify-center rounded-xl border border-dashed border-border p-6 text-center">
-              <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <Calendar className="size-6" />
-              </div>
-              <h3 className="mt-3 text-sm font-semibold">Belum ada event</h3>
-              <p className="mt-1 text-xs text-muted-foreground max-w-xs">
-                Belum ada acara yang dibuat. Klik tombol di bawah untuk menambah event baru.
-              </p>
-              <div className="mt-4">
-                <Button
-                  size="sm"
-                  onClick={handleOpenAddForm}
-                  className="gap-1.5 cursor-pointer"
-                >
-                  <Plus className="size-3.5" />
-                  Tambah Event
-                </Button>
-              </div>
-            </div>
+            <EmptyStateView
+              icon={Calendar}
+              title="Belum ada event"
+              description="Belum ada acara yang dibuat. Klik tombol di bawah untuk menambah event baru."
+              actionLabel="Tambah Event"
+              actionIcon={Plus}
+              onAction={handleOpenAddForm}
+            />
           ) : (
             /* Daftar Kartu Event */
             <div className="grid gap-3 sm:grid-cols-1">

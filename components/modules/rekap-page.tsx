@@ -7,15 +7,13 @@ import {
   Users,
   UserCheck,
   CreditCard,
-  AlertTriangle,
-  RotateCcw,
   Calendar,
   MapPin,
   Clock,
   Ban,
   CheckCircle2,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { EmptyStateView, ErrorStateView } from "@/components/ui/state-views"
 import type { EventDoc } from "@/types/event"
 import type { TiketDoc } from "@/types/tiket"
 import { SAMPLE_EVENTS } from "./event-page"
@@ -134,25 +132,11 @@ export function RekapPage({
             Ringkasan penjualan tiket, pendapatan, dan kehadiran per event.
           </p>
         </div>
-        <div className="flex min-h-[280px] flex-col items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-center space-y-3">
-          <div className="flex size-12 items-center justify-center rounded-full bg-destructive/15 text-destructive">
-            <AlertTriangle className="size-6" />
-          </div>
-          <h3 className="text-sm font-bold text-destructive">
-            Gagal Memuat Data Rekap
-          </h3>
-          <p className="text-xs text-muted-foreground max-w-xs">
-            Koneksi terputus atau terjadi kesalahan saat mengambil data rekap acara.
-          </p>
-          <Button
-            size="sm"
-            onClick={handleRetry}
-            className="gap-1.5 cursor-pointer"
-          >
-            <RotateCcw className="size-3.5" />
-            Coba Lagi
-          </Button>
-        </div>
+        <ErrorStateView
+          title="Gagal Memuat Data Rekap"
+          message="Koneksi terputus atau terjadi kesalahan saat mengambil data rekap acara."
+          onRetry={handleRetry}
+        />
       </div>
     )
   }
@@ -346,16 +330,11 @@ export function RekapPage({
 
           {/* EMPTY STATE JIKA EVENT BELUM MEMILIKI TIKET (AC 5.4 No. 3) */}
           {eventTikets.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border p-6 text-center space-y-2">
-              <Ticket className="size-8 mx-auto text-muted-foreground" />
-              <h4 className="text-xs font-semibold text-foreground">
-                Belum Ada Pembelian Tiket
-              </h4>
-              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                Event ini belum memiliki transaksi tiket yang tercatat. Rincian status
-                dan pendapatan akan tampil setelah ada tiket yang dibuat di Modul Tiket.
-              </p>
-            </div>
+            <EmptyStateView
+              icon={Ticket}
+              title="Belum Ada Pembelian Tiket"
+              description="Event ini belum memiliki transaksi tiket yang tercatat. Rincian status dan pendapatan akan tampil setelah ada tiket yang dibuat di Modul Tiket."
+            />
           ) : (
             /* RINCIAN STATUS PEMBELIAN TIKET */
             <div className="rounded-xl border border-border bg-card p-4 shadow-sm space-y-3">

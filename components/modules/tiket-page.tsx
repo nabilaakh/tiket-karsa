@@ -16,6 +16,7 @@ import {
   User,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { CardListSkeleton, EmptyStateView, ErrorStateView } from "@/components/ui/state-views"
 import { generateId } from "@/lib/id"
 import type { EventDoc } from "@/types/event"
 import type { PembeliDoc } from "@/types/pembeli"
@@ -71,6 +72,16 @@ export function TiketPage({
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [cancelingTiket, setCancelingTiket] = useState<TiketDoc | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isError, setIsError] = useState(false)
+
+  const handleRetry = () => {
+    setIsLoading(true)
+    setIsError(false)
+    setTimeout(() => {
+      setIsLoading(false)
+    }, 400)
+  }
 
   // Form state
   const [formData, setFormData] = useState({
@@ -598,34 +609,31 @@ export function TiketPage({
           </div>
 
           {/* DAFTAR KARTU TIKET */}
-          {filteredTiket.length === 0 ? (
-            <div className="flex min-h-[240px] flex-col items-center justify-center rounded-xl border border-dashed border-border p-6 text-center">
-              <div className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <Ticket className="size-6" />
-              </div>
-              <h3 className="mt-3 text-sm font-semibold">
-                {statusFilter === "semua"
+          {isError ? (
+            <ErrorStateView
+              title="Gagal Memuat Tiket"
+              message="Terjadi kendala saat membaca data koleksi tiket. Silakan coba lagi."
+              onRetry={handleRetry}
+            />
+          ) : isLoading ? (
+            <CardListSkeleton count={2} />
+          ) : filteredTiket.length === 0 ? (
+            <EmptyStateView
+              icon={Ticket}
+              title={
+                statusFilter === "semua"
                   ? "Belum ada tiket dicatat"
-                  : `Tidak ada tiket dengan status "${statusFilter}"`}
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground max-w-xs">
-                {statusFilter === "semua"
+                  : `Tidak ada tiket dengan status "${statusFilter}"`
+              }
+              description={
+                statusFilter === "semua"
                   ? "Belum ada transaksi tiket. Klik tombol di bawah untuk mencatat tiket baru."
-                  : "Silakan pilih tab status lain untuk melihat tiket."}
-              </p>
-              {statusFilter === "semua" && (
-                <div className="mt-4">
-                  <Button
-                    size="sm"
-                    onClick={handleOpenAddForm}
-                    className="gap-1.5 cursor-pointer"
-                  >
-                    <Plus className="size-3.5" />
-                    Buat Tiket
-                  </Button>
-                </div>
-              )}
-            </div>
+                  : "Silakan pilih tab status lain untuk melihat tiket."
+              }
+              actionLabel={statusFilter === "semua" ? "Buat Tiket" : undefined}
+              actionIcon={Plus}
+              onAction={statusFilter === "semua" ? handleOpenAddForm : undefined}
+            />
           ) : (
             <div className="grid gap-3 sm:grid-cols-1">
               {filteredTiket.map((t) => {
