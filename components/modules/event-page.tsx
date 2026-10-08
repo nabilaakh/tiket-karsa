@@ -15,10 +15,11 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { generateId } from "@/lib/id"
 import type { EventDoc } from "@/types/event"
 
 // Data awal menggunakan contoh dokumen Ev27dKm dari Skema Firestore
-const SAMPLE_EVENTS: EventDoc[] = [
+export const SAMPLE_EVENTS: EventDoc[] = [
   {
     id: "Ev27dKm",
     nama: "Workshop Sablon Tote Bag",
@@ -31,8 +32,15 @@ const SAMPLE_EVENTS: EventDoc[] = [
   },
 ]
 
-export function EventPage() {
-  const [events, setEvents] = useState<EventDoc[]>(SAMPLE_EVENTS)
+export interface EventPageProps {
+  events?: EventDoc[]
+  setEvents?: React.Dispatch<React.SetStateAction<EventDoc[]>>
+}
+
+export function EventPage({ events: propEvents, setEvents: propSetEvents }: EventPageProps = {}) {
+  const [localEvents, setLocalEvents] = useState<EventDoc[]>(SAMPLE_EVENTS)
+  const events = propEvents ?? localEvents
+  const setEvents = propSetEvents ?? setLocalEvents
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingEvent, setEditingEvent] = useState<EventDoc | null>(null)
   const [deletingEvent, setDeletingEvent] = useState<EventDoc | null>(null)
@@ -188,7 +196,7 @@ export function EventPage() {
     } else {
       // Mode Tambah Event (Create) - tiket_terjual bernilai 0 (AC 5.1 No 1)
       const newEvent: EventDoc = {
-        id: `Ev${Math.random().toString(36).substring(2, 7)}`,
+        id: generateId("Ev"),
         nama: formData.nama.trim(),
         tanggal: formData.tanggal,
         lokasi: formData.lokasi.trim(),

@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import type { PembeliDoc } from "@/types/pembeli"
 
 // Data awal menggunakan contoh dokumen pembeli/081355512345 dari Skema Firestore
-const SAMPLE_PEMBELI: PembeliDoc[] = [
+export const SAMPLE_PEMBELI: PembeliDoc[] = [
   {
     id: "081355512345",
     nama: "Nadia Putri",
@@ -28,8 +28,18 @@ const SAMPLE_PEMBELI: PembeliDoc[] = [
   },
 ]
 
-export function PembeliPage() {
-  const [pembeliList, setPembeliList] = useState<PembeliDoc[]>(SAMPLE_PEMBELI)
+export interface PembeliPageProps {
+  pembeliList?: PembeliDoc[]
+  setPembeliList?: React.Dispatch<React.SetStateAction<PembeliDoc[]>>
+}
+
+export function PembeliPage({
+  pembeliList: propPembeliList,
+  setPembeliList: propSetPembeliList,
+}: PembeliPageProps = {}) {
+  const [localPembeliList, setLocalPembeliList] = useState<PembeliDoc[]>(SAMPLE_PEMBELI)
+  const pembeliList = propPembeliList ?? localPembeliList
+  const setPembeliList = propSetPembeliList ?? setLocalPembeliList
   const [searchQuery, setSearchQuery] = useState("")
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingPembeli, setEditingPembeli] = useState<PembeliDoc | null>(null)
