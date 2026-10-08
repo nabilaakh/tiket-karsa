@@ -1,7 +1,19 @@
 "use client"
 
 import React, { useState } from "react"
-import { Calendar, Plus, MapPin, Tag, Users, CheckCircle2, ArrowLeft } from "lucide-react"
+import {
+  Calendar,
+  Plus,
+  MapPin,
+  Tag,
+  Users,
+  CheckCircle2,
+  ArrowLeft,
+  Pencil,
+  Trash2,
+  AlertTriangle,
+  X,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { EventDoc } from "@/types/event"
 
@@ -22,6 +34,8 @@ const SAMPLE_EVENTS: EventDoc[] = [
 export function EventPage() {
   const [events, setEvents] = useState<EventDoc[]>(SAMPLE_EVENTS)
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [editingEvent, setEditingEvent] = useState<EventDoc | null>(null)
+  const [deletingEvent, setDeletingEvent] = useState<EventDoc | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
   // Form State menggunakan nama field persis seperti skema
@@ -48,6 +62,34 @@ export function EventPage() {
     setTimeout(() => {
       setToastMessage(null)
     }, 3500)
+  }
+
+  // Buka formulir untuk Tambah Event baru
+  const handleOpenAddForm = () => {
+    setEditingEvent(null)
+    setFormData({
+      nama: "",
+      tanggal: "",
+      lokasi: "",
+      harga_tiket: "",
+      kuota: "",
+    })
+    setErrors({})
+    setIsFormOpen(true)
+  }
+
+  // Buka formulir untuk Ubah Event
+  const handleOpenEditForm = (ev: EventDoc) => {
+    setEditingEvent(ev)
+    setFormData({
+      nama: ev.nama,
+      tanggal: ev.tanggal,
+      lokasi: ev.lokasi,
+      harga_tiket: ev.harga_tiket.toString(),
+      kuota: ev.kuota.toString(),
+    })
+    setErrors({})
+    setIsFormOpen(true)
   }
 
   // Handle perubahan input
@@ -105,13 +147,17 @@ export function EventPage() {
       errs.kuota = "Kuota kursi harus antara 1 sampai 500."
     } else if (!Number.isInteger(kuotaNum)) {
       errs.kuota = "Kuota kursi harus berupa angka bulat."
+    } else if (editingEvent && kuotaNum < editingEvent.tiket_terjual) {
+      // Acceptance criteria 5.1 No. 4:
+      // Given kuota diubah menjadi lebih kecil dari tiket terjual, When data dikirim, Then permintaan ditolak.
+      errs.kuota = `Kuota tidak boleh lebih kecil dari tiket yang sudah terjual (${editingEvent.tiket_terjual} tiket).`
     }
 
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
 
-  // Submit Simpan Event (Acceptance Criteria 5.1 No 1)
+  // Submit Simpan Event (Tambah atau Ubah)
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -122,26 +168,48 @@ export function EventPage() {
     const hargaBulat = Math.round(Number(formData.harga_tiket))
     const kuotaBulat = Math.round(Number(formData.kuota))
 
-    // Dokumen baru dengan tiket_terjual bernilai 0 (AC 5.1 No 1)
-    const newEvent: EventDoc = {
-      id: `Ev${Math.random().toString(36).substring(2, 7)}`,
-      nama: formData.nama.trim(),
-      tanggal: formData.tanggal,
-      lokasi: formData.lokasi.trim(),
-      harga_tiket: hargaBulat,
-      kuota: kuotaBulat,
-      tiket_terjual: 0,
-      dibuat_pada: new Date().toLocaleDateString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+    if (editingEvent) {
+      // Mode Ubah Event (Update)
+      setEvents((prev) =>
+        prev.map((item) =>
+          item.id === editingEvent.id
+            ? {
+                ...item,
+                nama: formData.nama.trim(),
+                tanggal: formData.tanggal,
+                lokasi: formData.lokasi.trim(),
+                harga_tiket: hargaBulat,
+                kuota: kuotaBulat,
+              }
+            : item
+        )
+      )
+      showToast(`Event "${formData.nama.trim()}" berhasil diperbarui!`)
+    } else {
+      // Mode Tambah Event (Create) - tiket_terjual bernilai 0 (AC 5.1 No 1)
+      const newEvent: EventDoc = {
+        id: `Ev${Math.random().toString(36).substring(2, 7)}`,
+        nama: formData.nama.trim(),
+        tanggal: formData.tanggal,
+        lokasi: formData.lokasi.trim(),
+        harga_tiket: hargaBulat,
+        kuota: kuotaBulat,
+        tiket_terjual: 0,
+        dibuat_pada: new Date().toLocaleDateString("id-ID", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      }
+
+      setEvents((prev) => [newEvent, ...prev])
+      showToast(`Event "${newEvent.nama}" berhasil disimpan!`)
     }
 
-    setEvents((prev) => [newEvent, ...prev])
     setIsFormOpen(false)
+    setEditingEvent(null)
     setFormData({
       nama: "",
       tanggal: "",
@@ -149,7 +217,15 @@ export function EventPage() {
       harga_tiket: "",
       kuota: "",
     })
-    showToast(`Event "${newEvent.nama}" berhasil disimpan!`)
+  }
+
+  // Konfirmasi Hapus Event (Delete)
+  const handleConfirmDelete = () => {
+    if (!deletingEvent) return
+
+    setEvents((prev) => prev.filter((item) => item.id !== deletingEvent.id))
+    showToast(`Event "${deletingEvent.nama}" berhasil dihapus.`)
+    setDeletingEvent(null)
   }
 
   return (
@@ -159,6 +235,60 @@ export function EventPage() {
         <div className="fixed top-16 right-4 left-4 md:left-auto md:w-96 z-50 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-emerald-800 dark:text-emerald-300 shadow-md backdrop-blur">
           <CheckCircle2 className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
           <span className="font-medium">{toastMessage}</span>
+        </div>
+      )}
+
+      {/* MODAL DIALOG KONFIRMASI HAPUS EVENT */}
+      {deletingEvent && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+        >
+          <div className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive">
+                <AlertTriangle className="size-5" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-bold text-foreground">Hapus Event?</h3>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  Apakah Anda yakin ingin menghapus event{" "}
+                  <strong className="text-foreground">&ldquo;{deletingEvent.nama}&rdquo;</strong>? Tindakan
+                  ini tidak dapat dibatalkan.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeletingEvent(null)}
+                className="text-muted-foreground hover:text-foreground cursor-pointer"
+                aria-label="Tutup dialog"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDeletingEvent(null)}
+                className="cursor-pointer"
+              >
+                Batal
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleConfirmDelete}
+                className="cursor-pointer"
+              >
+                Hapus Event
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -175,7 +305,7 @@ export function EventPage() {
           {!isFormOpen ? (
             <Button
               size="sm"
-              onClick={() => setIsFormOpen(true)}
+              onClick={handleOpenAddForm}
               className="gap-1.5 cursor-pointer"
             >
               <Plus className="size-3.5" />
@@ -185,7 +315,10 @@ export function EventPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setIsFormOpen(false)}
+              onClick={() => {
+                setIsFormOpen(false)
+                setEditingEvent(null)
+              }}
               className="gap-1.5 cursor-pointer"
             >
               <ArrowLeft className="size-3.5" />
@@ -195,18 +328,22 @@ export function EventPage() {
         </div>
       </div>
 
-      {/* TAMPILAN FORMULIR TAMBAH EVENT */}
+      {/* TAMPILAN FORMULIR TAMBAH / UBAH EVENT */}
       {isFormOpen ? (
         <div className="rounded-xl border border-border bg-card p-4 md:p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between border-b border-border pb-3">
             <div>
-              <h3 className="text-base font-semibold">Formulir Tambah Event</h3>
+              <h3 className="text-base font-semibold">
+                {editingEvent ? `Ubah Event: ${editingEvent.nama}` : "Formulir Tambah Event"}
+              </h3>
               <p className="text-xs text-muted-foreground">
-                Isi data acara sesuai dengan skema koleksi event.
+                {editingEvent
+                  ? "Perbarui informasi acara. Kuota tidak boleh lebih kecil dari tiket terjual."
+                  : "Isi data acara sesuai dengan skema koleksi event."}
               </p>
             </div>
             <span className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
-              koleksi: event
+              {editingEvent ? editingEvent.id : "koleksi: event"}
             </span>
           </div>
 
@@ -324,18 +461,25 @@ export function EventPage() {
                 {errors.kuota ? (
                   <span className="text-[11px] text-destructive font-medium">{errors.kuota}</span>
                 ) : (
-                  <span className="text-[11px] text-muted-foreground">1 sampai 500 kursi</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {editingEvent
+                      ? `Minimal ${editingEvent.tiket_terjual} kursi (sesuai tiket terjual)`
+                      : "1 sampai 500 kursi"}
+                  </span>
                 )}
               </div>
             </div>
 
-            {/* Tombol aksi */}
+            {/* Tombol aksi formulir */}
             <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setIsFormOpen(false)}
+                onClick={() => {
+                  setIsFormOpen(false)
+                  setEditingEvent(null)
+                }}
                 className="cursor-pointer"
               >
                 Batal
@@ -345,7 +489,7 @@ export function EventPage() {
                 size="sm"
                 className="cursor-pointer"
               >
-                Simpan Event
+                {editingEvent ? "Simpan Perubahan" : "Simpan Event"}
               </Button>
             </div>
           </form>
@@ -366,7 +510,7 @@ export function EventPage() {
               <div className="mt-4">
                 <Button
                   size="sm"
-                  onClick={() => setIsFormOpen(true)}
+                  onClick={handleOpenAddForm}
                   className="gap-1.5 cursor-pointer"
                 >
                   <Plus className="size-3.5" />
@@ -380,7 +524,10 @@ export function EventPage() {
               {events.map((ev) => {
                 const sisaKuota = ev.kuota - ev.tiket_terjual
                 const isHabis = ev.tiket_terjual >= ev.kuota // AC 5.1 No 3
-                const persentaseTerjual = Math.min(100, Math.round((ev.tiket_terjual / ev.kuota) * 100))
+                const persentaseTerjual = Math.min(
+                  100,
+                  Math.round((ev.tiket_terjual / ev.kuota) * 100)
+                )
 
                 return (
                   <div
@@ -388,7 +535,7 @@ export function EventPage() {
                     className="flex flex-col justify-between rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/40 shadow-sm"
                   >
                     <div>
-                      {/* Baris Atas: Nama & Badge Habis */}
+                      {/* Baris Atas: Nama, ID, Status, dan Tombol Aksi */}
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <div className="flex items-center gap-2">
@@ -405,16 +552,40 @@ export function EventPage() {
                           </p>
                         </div>
 
-                        {/* Label Habis (AC 5.1 No 3) */}
-                        {isHabis ? (
-                          <span className="inline-flex items-center rounded-md bg-destructive/15 px-2.5 py-1 text-xs font-bold text-destructive">
-                            Habis
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                            Tersedia
-                          </span>
-                        )}
+                        {/* Status Label & Tombol Ubah/Hapus */}
+                        <div className="flex items-center gap-1.5">
+                          {isHabis ? (
+                            <span className="inline-flex items-center rounded-md bg-destructive/15 px-2.5 py-1 text-xs font-bold text-destructive">
+                              Habis
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                              Tersedia
+                            </span>
+                          )}
+
+                          {/* Tombol Ubah */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditForm(ev)}
+                            title="Ubah Event"
+                            aria-label={`Ubah event ${ev.nama}`}
+                            className="inline-flex size-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+
+                          {/* Tombol Hapus */}
+                          <button
+                            type="button"
+                            onClick={() => setDeletingEvent(ev)}
+                            title="Hapus Event"
+                            aria-label={`Hapus event ${ev.nama}`}
+                            className="inline-flex size-7 items-center justify-center rounded-md border border-destructive/20 text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
                       </div>
 
                       {/* Info Detail: Lokasi & Harga */}
@@ -439,7 +610,13 @@ export function EventPage() {
                           </span>
                           <span className="text-xs">
                             Sisa:{" "}
-                            <strong className={isHabis ? "text-destructive font-bold" : "text-primary font-bold"}>
+                            <strong
+                              className={
+                                isHabis
+                                  ? "text-destructive font-bold"
+                                  : "text-primary font-bold"
+                              }
+                            >
                               {sisaKuota} tiket
                             </strong>
                           </span>
