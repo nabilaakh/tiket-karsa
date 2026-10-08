@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Koleksi: event
+    // Sesuai Skema: Nama & lokasi wajib, tanggal teks, harga >= 0, kuota 1-500, tiket_terjual 0 s.d kuota
+    match /event/{eventId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.nama is string &&
+        request.resource.data.nama.size() > 0 &&
+        request.resource.data.lokasi is string &&
+        request.resource.data.lokasi.size() > 0 &&
+        request.resource.data.harga_tiket is number &&
+        request.resource.data.harga_tiket >= 0 &&
+        request.resource.data.kuota is number &&
+        request.resource.data.kuota >= 1 &&
+        request.resource.data.kuota <= 500 &&
+        request.resource.data.tiket_terjual is number &&
+        request.resource.data.tiket_terjual >= 0 &&
+        request.resource.data.tiket_terjual <= request.resource.data.kuota;
+      allow delete: if true;
+    }
+
+    // 2. Koleksi: pembeli
+    // Sesuai Skema: ID dokumen = no_whatsapp, diawali 08 (10-13 digit), email mengandung @
+    match /pembeli/{noWhatsapp} {
+      allow read: if true;
+      allow create, update: if request.resource.data.nama is string &&
+        request.resource.data.nama.size() > 0 &&
+        request.resource.data.no_whatsapp == noWhatsapp &&
+        request.resource.data.no_whatsapp.matches('^08[0-9]{8,11}$') &&
+        request.resource.data.email.matches('.*@.*');
+      allow delete: if true;
+    }
+
+    // 3. Koleksi: tiket
+    // Sesuai Skema: jumlah 1-5, total = harga * jumlah, status valid
+    match /tiket/{tiketId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.jumlah_tiket is number &&
+        request.resource.data.jumlah_tiket >= 1 &&
+        request.resource.data.jumlah_tiket <= 5 &&
+        request.resource.data.total == request.resource.data.harga_tiket * request.resource.data.jumlah_tiket &&
+        (request.resource.data.status in ['menunggu_bayar', 'lunas', 'hadir', 'dibatalkan']);
+      allow delete: if true;
+    }
+  }
+}
