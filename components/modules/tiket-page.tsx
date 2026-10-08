@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import {
   Ticket,
   Plus,
@@ -14,37 +14,29 @@ import {
   Clock,
   AlertTriangle,
   User,
+  Loader2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CardListSkeleton, EmptyStateView, ErrorStateView } from "@/components/ui/state-views"
-import { generateId } from "@/lib/id"
+import {
+  getTiket,
+  createTiket,
+  updateStatusTiket,
+  getEvents,
+  getPembeli,
+} from "@/lib/firestore"
 import type { EventDoc } from "@/types/event"
 import type { PembeliDoc } from "@/types/pembeli"
 import type { TiketDoc, StatusTiket } from "@/types/tiket"
-import { SAMPLE_EVENTS } from "./event-page"
-import { SAMPLE_PEMBELI } from "./pembeli-page"
 
-// Data awal menggunakan contoh dokumen tiket/Tk63fHs dari Skema Firestore
-export const SAMPLE_TIKET: TiketDoc[] = [
-  {
-    id: "Tk63fHs",
-    event_id: "Ev27dKm",
-    nama_event: "Workshop Sablon Tote Bag",
-    tanggal_event: "2026-10-18",
-    pembeli_id: "081355512345",
-    nama_pembeli: "Nadia Putri",
-    harga_tiket: 75000,
-    jumlah_tiket: 2,
-    total: 150000,
-    status: "menunggu_bayar",
-    dibuat_pada: "1 Oktober 2026 09.15",
-  },
-]
+// Data fallback kosong saat terhubung ke Firestore
+export const SAMPLE_TIKET: TiketDoc[] = []
 
 export interface TiketPageProps {
   events?: EventDoc[]
   setEvents?: React.Dispatch<React.SetStateAction<EventDoc[]>>
   pembeliList?: PembeliDoc[]
+  setPembeliList?: React.Dispatch<React.SetStateAction<PembeliDoc[]>>
   tiketList?: TiketDoc[]
   setTiketList?: React.Dispatch<React.SetStateAction<TiketDoc[]>>
 }
@@ -53,17 +45,19 @@ export function TiketPage({
   events: propEvents,
   setEvents: propSetEvents,
   pembeliList: propPembeliList,
+  setPembeliList: propSetPembeliList,
   tiketList: propTiketList,
   setTiketList: propSetTiketList,
 }: TiketPageProps = {}) {
   // Local states jika props tidak dilempar
-  const [localEvents, setLocalEvents] = useState<EventDoc[]>(SAMPLE_EVENTS)
-  const [localPembeliList] = useState<PembeliDoc[]>(SAMPLE_PEMBELI)
-  const [localTiketList, setLocalTiketList] = useState<TiketDoc[]>(SAMPLE_TIKET)
+  const [localEvents, setLocalEvents] = useState<EventDoc[]>([])
+  const [localPembeliList, setLocalPembeliList] = useState<PembeliDoc[]>([])
+  const [localTiketList, setLocalTiketList] = useState<TiketDoc[]>([])
 
   const events = propEvents ?? localEvents
   const setEvents = propSetEvents ?? setLocalEvents
   const pembeliList = propPembeliList ?? localPembeliList
+  const setPembeliList = propSetPembeliList ?? setLocalPembeliList
   const tiketList = propTiketList ?? localTiketList
   const setTiketList = propSetTiketList ?? setLocalTiketList
 
@@ -72,15 +66,56 @@ export function TiketPage({
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [cancelingTiket, setCancelingTiket] = useState<TiketDoc | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [isError, setIsError] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const loadData = useCallback(async () => {
+    try {
+      const [tiks, evs, pems] = await Promise.all([
+        getTiket(),
+        getEvents(),
+        getPembeli(),
+      ])
+      setTiketList(tiks)
+      if (setEvents) setEvents(evs)
+      if (setPembeliList) setPembeliList(pems)
+    } catch (err) {
+      console.error("Gagal mengambil data tiket dari Firestore:", err)
+      setIsError(true)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [setTiketList, setEvents, setPembeliList])
+
+  useEffect(() => {
+    let ignore = false
+    Promise.all([getTiket(), getEvents(), getPembeli()])
+      .then(([tiks, evs, pems]) => {
+        if (!ignore) {
+          setTiketList(tiks)
+          if (setEvents) setEvents(evs)
+          if (setPembeliList) setPembeliList(pems)
+          setIsLoading(false)
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          console.error("Gagal mengambil data tiket dari Firestore:", err)
+          setIsError(true)
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [setTiketList, setEvents, setPembeliList])
 
   const handleRetry = () => {
     setIsLoading(true)
     setIsError(false)
-    setTimeout(() => {
-      setIsLoading(false)
-    }, 400)
+    loadData()
   }
 
   // Form state
@@ -162,8 +197,8 @@ export function TiketPage({
     return Object.keys(errs).length === 0
   }
 
-  // Submit Simpan Tiket (Acceptance Criteria 5.3 No. 1)
-  const handleSubmit = (e: React.FormEvent) => {
+  // Submit Simpan Tiket (Acceptance Criteria 5.3 No. 1) via addDoc
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!validateForm() || !selectedEvent) {
@@ -179,87 +214,83 @@ export function TiketPage({
     const jumlahNum = Math.round(Number(formData.jumlah_tiket))
     const totalBayar = selectedEvent.harga_tiket * jumlahNum
 
-    // Dokumen tiket baru dengan nama dan harga event disalin (Skema Bagian 5)
-    const newTiket: TiketDoc = {
-      id: generateId("Tk"),
-      event_id: selectedEvent.id,
-      nama_event: selectedEvent.nama,
-      tanggal_event: selectedEvent.tanggal,
-      pembeli_id: selectedPembeli.id,
-      nama_pembeli: selectedPembeli.nama,
-      harga_tiket: selectedEvent.harga_tiket,
-      jumlah_tiket: jumlahNum,
-      total: totalBayar,
-      status: "menunggu_bayar", // Status awal wajib menunggu_bayar (AC 5.3 No. 1)
-      dibuat_pada: new Date().toLocaleDateString("id-ID", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    }
+    setIsSubmitting(true)
+    try {
+      // Simpan tiket ke koleksi tiket dengan addDoc & perbarui kuota event via increment(jumlah)
+      await createTiket({
+        event_id: selectedEvent.id,
+        nama_event: selectedEvent.nama,
+        tanggal_event: selectedEvent.tanggal,
+        pembeli_id: selectedPembeli.id,
+        nama_pembeli: selectedPembeli.nama,
+        harga_tiket: selectedEvent.harga_tiket,
+        jumlah_tiket: jumlahNum,
+        total: totalBayar,
+      })
 
-    // 1. Simpan tiket ke koleksi tiket
-    setTiketList((prev) => [newTiket, ...prev])
-
-    // 2. Tambah tiket_terjual pada event sebanyak jumlah_tiket (AC 5.3 No. 1)
-    setEvents((prev) =>
-      prev.map((ev) =>
-        ev.id === selectedEvent.id
-          ? { ...ev, tiket_terjual: ev.tiket_terjual + jumlahNum }
-          : ev
+      showToast(
+        `Tiket untuk "${selectedPembeli.nama}" berhasil disimpan ke Firestore! Status: menunggu_bayar`
       )
-    )
-
-    setIsFormOpen(false)
-    showToast(
-      `Tiket untuk "${selectedPembeli.nama}" berhasil disimpan! Status: menunggu_bayar`
-    )
+      await loadData()
+      setIsFormOpen(false)
+    } catch (err: unknown) {
+      console.error("Gagal menyimpan tiket ke Firestore:", err)
+      const msg = err instanceof Error ? err.message : "Gagal menyimpan tiket ke Firestore."
+      showToast(msg)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   // Ubah status ke "lunas" (AC 5.3 No. 3: menunggu_bayar -> lunas)
-  const handleSetLunas = (tiket: TiketDoc) => {
+  const handleSetLunas = async (tiket: TiketDoc) => {
     if (tiket.status !== "menunggu_bayar") return
 
-    setTiketList((prev) =>
-      prev.map((t) => (t.id === tiket.id ? { ...t, status: "lunas" } : t))
-    )
-    showToast(`Tiket ${tiket.id} (${tiket.nama_pembeli}) berhasil dikonfirmasi lunas!`)
+    try {
+      await updateStatusTiket(tiket.id, "lunas", tiket.event_id, tiket.jumlah_tiket)
+      showToast(`Tiket ${tiket.id} (${tiket.nama_pembeli}) berhasil dikonfirmasi lunas!`)
+      await loadData()
+    } catch (err) {
+      console.error("Gagal mengonfirmasi status lunas:", err)
+      showToast("Gagal memperbarui status tiket di Firestore.")
+    }
   }
 
   // Ubah status ke "hadir" (AC 5.3 No. 3: lunas -> hadir)
-  const handleSetHadir = (tiket: TiketDoc) => {
+  const handleSetHadir = async (tiket: TiketDoc) => {
     if (tiket.status !== "lunas") return
 
-    setTiketList((prev) =>
-      prev.map((t) => (t.id === tiket.id ? { ...t, status: "hadir" } : t))
-    )
-    showToast(`Check-in berhasil: ${tiket.nama_pembeli} hadir di acara!`)
+    try {
+      await updateStatusTiket(tiket.id, "hadir", tiket.event_id, tiket.jumlah_tiket)
+      showToast(`Check-in berhasil: ${tiket.nama_pembeli} hadir di acara!`)
+      await loadData()
+    } catch (err) {
+      console.error("Gagal memperbarui status hadir:", err)
+      showToast("Gagal memperbarui status kehadiran di Firestore.")
+    }
   }
 
   // Konfirmasi Pembatalan Tiket (AC 5.3 No. 4)
-  const handleConfirmCancel = () => {
+  const handleConfirmCancel = async () => {
     if (!cancelingTiket) return
 
-    // 1. Ubah status tiket menjadi "dibatalkan"
-    setTiketList((prev) =>
-      prev.map((t) => (t.id === cancelingTiket.id ? { ...t, status: "dibatalkan" } : t))
-    )
-
-    // 2. Kurangi tiket_terjual pada event sebanyak jumlah_tiket (kuota kembali) (AC 5.3 No. 4)
-    setEvents((prev) =>
-      prev.map((ev) =>
-        ev.id === cancelingTiket.event_id
-          ? { ...ev, tiket_terjual: Math.max(0, ev.tiket_terjual - cancelingTiket.jumlah_tiket) }
-          : ev
+    try {
+      // Ubah status tiket menjadi "dibatalkan" dan kembalikan kuota dengan increment(-jumlah)
+      await updateStatusTiket(
+        cancelingTiket.id,
+        "dibatalkan",
+        cancelingTiket.event_id,
+        cancelingTiket.jumlah_tiket
       )
-    )
-
-    showToast(
-      `Tiket ${cancelingTiket.id} dibatalkan. Kuota acara dikembalikan sebanyak ${cancelingTiket.jumlah_tiket} tiket.`
-    )
-    setCancelingTiket(null)
+      showToast(
+        `Tiket ${cancelingTiket.id} dibatalkan. Kuota acara dikembalikan sebanyak ${cancelingTiket.jumlah_tiket} tiket.`
+      )
+      setCancelingTiket(null)
+      await loadData()
+    } catch (err) {
+      console.error("Gagal membatalkan tiket:", err)
+      showToast("Gagal membatalkan tiket di Firestore.")
+    }
   }
 
   // Filter daftar tiket berdasarkan tab status
@@ -519,10 +550,11 @@ export function TiketPage({
               <Button
                 type="submit"
                 size="sm"
-                className="cursor-pointer"
-                disabled={events.length === 0 || pembeliList.length === 0}
+                className="cursor-pointer gap-1.5"
+                disabled={events.length === 0 || pembeliList.length === 0 || isSubmitting}
               >
-                Simpan Tiket
+                {isSubmitting && <Loader2 className="size-3.5 animate-spin" />}
+                {isSubmitting ? "Menyimpan..." : "Simpan Tiket"}
               </Button>
             </div>
           </form>

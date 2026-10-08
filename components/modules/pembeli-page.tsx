@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useMemo } from "react"
+import React, { useState, useMemo, useEffect, useCallback } from "react"
 import {
   Users,
   UserPlus,
@@ -14,21 +14,20 @@ import {
   AlertTriangle,
   X,
   RotateCcw,
+  Loader2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CardListSkeleton, EmptyStateView, ErrorStateView } from "@/components/ui/state-views"
+import {
+  getPembeli,
+  createPembeli,
+  updatePembeli,
+  deletePembeli,
+} from "@/lib/firestore"
 import type { PembeliDoc } from "@/types/pembeli"
 
-// Data awal menggunakan contoh dokumen pembeli/081355512345 dari Skema Firestore
-export const SAMPLE_PEMBELI: PembeliDoc[] = [
-  {
-    id: "081355512345",
-    nama: "Nadia Putri",
-    no_whatsapp: "081355512345",
-    email: "nadia.putri@contoh.id",
-    dibuat_pada: "1 Oktober 2026 08.30",
-  },
-]
+// Data fallback kosong saat terhubung ke Firestore
+export const SAMPLE_PEMBELI: PembeliDoc[] = []
 
 export interface PembeliPageProps {
   pembeliList?: PembeliDoc[]
@@ -39,7 +38,7 @@ export function PembeliPage({
   pembeliList: propPembeliList,
   setPembeliList: propSetPembeliList,
 }: PembeliPageProps = {}) {
-  const [localPembeliList, setLocalPembeliList] = useState<PembeliDoc[]>(SAMPLE_PEMBELI)
+  const [localPembeliList, setLocalPembeliList] = useState<PembeliDoc[]>([])
   const pembeliList = propPembeliList ?? localPembeliList
   const setPembeliList = propSetPembeliList ?? setLocalPembeliList
   const [searchQuery, setSearchQuery] = useState("")
@@ -47,15 +46,48 @@ export function PembeliPage({
   const [editingPembeli, setEditingPembeli] = useState<PembeliDoc | null>(null)
   const [deletingPembeli, setDeletingPembeli] = useState<PembeliDoc | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [isError, setIsError] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const loadData = useCallback(async () => {
+    try {
+      const data = await getPembeli()
+      setPembeliList(data)
+    } catch (err) {
+      console.error("Gagal mengambil data pembeli dari Firestore:", err)
+      setIsError(true)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [setPembeliList])
+
+  useEffect(() => {
+    let ignore = false
+    getPembeli()
+      .then((data) => {
+        if (!ignore) {
+          setPembeliList(data)
+          setIsLoading(false)
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          console.error("Gagal mengambil data pembeli:", err)
+          setIsError(true)
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [setPembeliList])
 
   const handleRetry = () => {
     setIsLoading(true)
     setIsError(false)
-    setTimeout(() => {
-      setIsLoading(false)
-    }, 400)
+    loadData()
   }
 
   // Form state persis sesuai field skema: nama, no_whatsapp, email
@@ -163,7 +195,7 @@ export function PembeliPage({
   }
 
   // Submit Simpan Pembeli (Create & Update)
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!validateForm()) {
@@ -174,58 +206,61 @@ export function PembeliPage({
     const cleanWa = formData.no_whatsapp.trim()
     const cleanEmail = formData.email.trim()
 
-    if (editingPembeli) {
-      // Mode Ubah Pembeli
-      setPembeliList((prev) =>
-        prev.map((item) =>
-          item.id === editingPembeli.id
-            ? {
-                ...item,
-                id: cleanWa,
-                nama: cleanNama,
-                no_whatsapp: cleanWa,
-                email: cleanEmail,
-              }
-            : item
-        )
-      )
-      showToast(`Data pembeli "${cleanNama}" berhasil diperbarui!`)
-    } else {
-      // Mode Tambah Pembeli (AC 5.2 No. 1)
-      const newPembeli: PembeliDoc = {
-        id: cleanWa, // ID dokumen Firestore memakai nomor WhatsApp
-        nama: cleanNama,
-        no_whatsapp: cleanWa,
-        email: cleanEmail,
-        dibuat_pada: new Date().toLocaleDateString("id-ID", {
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+    setIsSubmitting(true)
+    try {
+      if (editingPembeli) {
+        // Mode Ubah Pembeli
+        await updatePembeli(editingPembeli.id, {
+          nama: cleanNama,
+          email: cleanEmail,
+        })
+        showToast(`Data pembeli "${cleanNama}" berhasil diperbarui!`)
+      } else {
+        // Mode Tambah Pembeli (ID dokumen = nomor WhatsApp sesuai Skema Bagian 4)
+        await createPembeli({
+          nama: cleanNama,
+          no_whatsapp: cleanWa,
+          email: cleanEmail,
+        })
+        showToast(`Pembeli "${cleanNama}" berhasil disimpan ke Firestore!`)
       }
 
-      setPembeliList((prev) => [newPembeli, ...prev])
-      showToast(`Pembeli "${cleanNama}" berhasil disimpan!`)
+      await loadData()
+      setIsFormOpen(false)
+      setEditingPembeli(null)
+      setFormData({
+        nama: "",
+        no_whatsapp: "",
+        email: "",
+      })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Gagal menyimpan data pembeli"
+      if (msg.includes("Nomor WhatsApp sudah terdaftar")) {
+        setErrors((prev) => ({
+          ...prev,
+          no_whatsapp: "Nomor WhatsApp sudah terdaftar",
+        }))
+      } else {
+        showToast("Gagal menyimpan data pembeli ke Firestore.")
+      }
+    } finally {
+      setIsSubmitting(false)
     }
-
-    setIsFormOpen(false)
-    setEditingPembeli(null)
-    setFormData({
-      nama: "",
-      no_whatsapp: "",
-      email: "",
-    })
   }
 
   // Konfirmasi Hapus Pembeli (AC 5.2 No. 5)
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deletingPembeli) return
 
-    setPembeliList((prev) => prev.filter((item) => item.id !== deletingPembeli.id))
-    showToast(`Data pembeli "${deletingPembeli.nama}" berhasil dihapus.`)
-    setDeletingPembeli(null)
+    try {
+      await deletePembeli(deletingPembeli.id)
+      showToast(`Data pembeli "${deletingPembeli.nama}" berhasil dihapus.`)
+      setDeletingPembeli(null)
+      await loadData()
+    } catch (err) {
+      console.error("Gagal menghapus pembeli:", err)
+      showToast("Gagal menghapus data pembeli dari Firestore.")
+    }
   }
 
   // Filter daftar berdasarkan kolom cari nama atau nomor WA (AC 5.2 No. 4)
@@ -454,9 +489,15 @@ export function PembeliPage({
               <Button
                 type="submit"
                 size="sm"
-                className="cursor-pointer"
+                disabled={isSubmitting}
+                className="cursor-pointer gap-1.5"
               >
-                {editingPembeli ? "Simpan Perubahan" : "Simpan Pembeli"}
+                {isSubmitting && <Loader2 className="size-3.5 animate-spin" />}
+                {isSubmitting
+                  ? "Menyimpan..."
+                  : editingPembeli
+                  ? "Simpan Perubahan"
+                  : "Simpan Pembeli"}
               </Button>
             </div>
           </form>

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import {
   Calendar,
   Plus,
@@ -13,25 +13,20 @@ import {
   Trash2,
   AlertTriangle,
   X,
+  Loader2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CardListSkeleton, EmptyStateView, ErrorStateView } from "@/components/ui/state-views"
-import { generateId } from "@/lib/id"
+import {
+  getEvents,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+} from "@/lib/firestore"
 import type { EventDoc } from "@/types/event"
 
-// Data awal menggunakan contoh dokumen Ev27dKm dari Skema Firestore
-export const SAMPLE_EVENTS: EventDoc[] = [
-  {
-    id: "Ev27dKm",
-    nama: "Workshop Sablon Tote Bag",
-    tanggal: "2026-10-18",
-    lokasi: "Ruang Karsa, Jl. Merdeka No. 21",
-    harga_tiket: 75000,
-    kuota: 30,
-    tiket_terjual: 2,
-    dibuat_pada: "1 Oktober 2026 08.00",
-  },
-]
+// Data fallback kosong saat terhubung ke Firestore
+export const SAMPLE_EVENTS: EventDoc[] = []
 
 export interface EventPageProps {
   events?: EventDoc[]
@@ -39,22 +34,55 @@ export interface EventPageProps {
 }
 
 export function EventPage({ events: propEvents, setEvents: propSetEvents }: EventPageProps = {}) {
-  const [localEvents, setLocalEvents] = useState<EventDoc[]>(SAMPLE_EVENTS)
+  const [localEvents, setLocalEvents] = useState<EventDoc[]>([])
   const events = propEvents ?? localEvents
   const setEvents = propSetEvents ?? setLocalEvents
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingEvent, setEditingEvent] = useState<EventDoc | null>(null)
   const [deletingEvent, setDeletingEvent] = useState<EventDoc | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [isError, setIsError] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const loadData = useCallback(async () => {
+    try {
+      const data = await getEvents()
+      setEvents(data)
+    } catch (err) {
+      console.error("Gagal mengambil data event dari Firestore:", err)
+      setIsError(true)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [setEvents])
+
+  useEffect(() => {
+    let ignore = false
+    getEvents()
+      .then((data) => {
+        if (!ignore) {
+          setEvents(data)
+          setIsLoading(false)
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          console.error("Gagal mengambil data event:", err)
+          setIsError(true)
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [setEvents])
 
   const handleRetry = () => {
     setIsLoading(true)
     setIsError(false)
-    setTimeout(() => {
-      setIsLoading(false)
-    }, 400)
+    loadData()
   }
 
   // Form State menggunakan nama field persis seperti skema
@@ -177,7 +205,7 @@ export function EventPage({ events: propEvents, setEvents: propSetEvents }: Even
   }
 
   // Submit Simpan Event (Tambah atau Ubah)
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!validateForm()) {
@@ -187,64 +215,62 @@ export function EventPage({ events: propEvents, setEvents: propSetEvents }: Even
     const hargaBulat = Math.round(Number(formData.harga_tiket))
     const kuotaBulat = Math.round(Number(formData.kuota))
 
-    if (editingEvent) {
-      // Mode Ubah Event (Update)
-      setEvents((prev) =>
-        prev.map((item) =>
-          item.id === editingEvent.id
-            ? {
-                ...item,
-                nama: formData.nama.trim(),
-                tanggal: formData.tanggal,
-                lokasi: formData.lokasi.trim(),
-                harga_tiket: hargaBulat,
-                kuota: kuotaBulat,
-              }
-            : item
-        )
-      )
-      showToast(`Event "${formData.nama.trim()}" berhasil diperbarui!`)
-    } else {
-      // Mode Tambah Event (Create) - tiket_terjual bernilai 0 (AC 5.1 No 1)
-      const newEvent: EventDoc = {
-        id: generateId("Ev"),
-        nama: formData.nama.trim(),
-        tanggal: formData.tanggal,
-        lokasi: formData.lokasi.trim(),
-        harga_tiket: hargaBulat,
-        kuota: kuotaBulat,
-        tiket_terjual: 0,
-        dibuat_pada: new Date().toLocaleDateString("id-ID", {
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
+    setIsSubmitting(true)
+    try {
+      if (editingEvent) {
+        // Mode Ubah Event (Update)
+        await updateEvent(editingEvent.id, {
+          nama: formData.nama.trim(),
+          tanggal: formData.tanggal,
+          lokasi: formData.lokasi.trim(),
+          harga_tiket: hargaBulat,
+          kuota: kuotaBulat,
+        })
+        showToast(`Event "${formData.nama.trim()}" berhasil diperbarui!`)
+      } else {
+        // Mode Tambah Event (Create) via addDoc - tiket_terjual bernilai 0 (AC 5.1 No 1)
+        await createEvent({
+          nama: formData.nama.trim(),
+          tanggal: formData.tanggal,
+          lokasi: formData.lokasi.trim(),
+          harga_tiket: hargaBulat,
+          kuota: kuotaBulat,
+        })
+        showToast(`Event "${formData.nama.trim()}" berhasil disimpan ke Firestore!`)
       }
 
-      setEvents((prev) => [newEvent, ...prev])
-      showToast(`Event "${newEvent.nama}" berhasil disimpan!`)
+      await loadData()
+      setIsFormOpen(false)
+      setEditingEvent(null)
+      setFormData({
+        nama: "",
+        tanggal: "",
+        lokasi: "",
+        harga_tiket: "",
+        kuota: "",
+      })
+    } catch (err: unknown) {
+      console.error("Gagal menyimpan event ke Firestore:", err)
+      const msg = err instanceof Error ? err.message : "Gagal menyimpan data event ke Firestore."
+      showToast(msg)
+    } finally {
+      setIsSubmitting(false)
     }
-
-    setIsFormOpen(false)
-    setEditingEvent(null)
-    setFormData({
-      nama: "",
-      tanggal: "",
-      lokasi: "",
-      harga_tiket: "",
-      kuota: "",
-    })
   }
 
   // Konfirmasi Hapus Event (Delete)
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deletingEvent) return
 
-    setEvents((prev) => prev.filter((item) => item.id !== deletingEvent.id))
-    showToast(`Event "${deletingEvent.nama}" berhasil dihapus.`)
-    setDeletingEvent(null)
+    try {
+      await deleteEvent(deletingEvent.id)
+      showToast(`Event "${deletingEvent.nama}" berhasil dihapus.`)
+      setDeletingEvent(null)
+      await loadData()
+    } catch (err) {
+      console.error("Gagal menghapus event dari Firestore:", err)
+      showToast("Gagal menghapus data event dari Firestore.")
+    }
   }
 
   return (
@@ -506,9 +532,15 @@ export function EventPage({ events: propEvents, setEvents: propSetEvents }: Even
               <Button
                 type="submit"
                 size="sm"
-                className="cursor-pointer"
+                disabled={isSubmitting}
+                className="cursor-pointer gap-1.5"
               >
-                {editingEvent ? "Simpan Perubahan" : "Simpan Event"}
+                {isSubmitting && <Loader2 className="size-3.5 animate-spin" />}
+                {isSubmitting
+                  ? "Menyimpan..."
+                  : editingEvent
+                  ? "Simpan Perubahan"
+                  : "Simpan Event"}
               </Button>
             </div>
           </form>

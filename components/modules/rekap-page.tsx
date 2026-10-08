@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useMemo } from "react"
+import React, { useState, useMemo, useEffect, useCallback } from "react"
 import {
   BarChart3,
   Ticket,
@@ -14,10 +14,9 @@ import {
   CheckCircle2,
 } from "lucide-react"
 import { EmptyStateView, ErrorStateView } from "@/components/ui/state-views"
+import { getEvents, getTiket } from "@/lib/firestore"
 import type { EventDoc } from "@/types/event"
 import type { TiketDoc } from "@/types/tiket"
-import { SAMPLE_EVENTS } from "./event-page"
-import { SAMPLE_TIKET } from "./tiket-page"
 
 export interface RekapPageProps {
   events?: EventDoc[]
@@ -28,15 +27,58 @@ export function RekapPage({
   events: propEvents,
   tiketList: propTiketList,
 }: RekapPageProps = {}) {
-  const events = propEvents ?? SAMPLE_EVENTS
-  const tiketList = propTiketList ?? SAMPLE_TIKET
+  const [localEvents, setLocalEvents] = useState<EventDoc[]>([])
+  const [localTiketList, setLocalTiketList] = useState<TiketDoc[]>([])
+
+  const events = propEvents ?? localEvents
+  const tiketList = propTiketList ?? localTiketList
 
   // Event yang dipilih untuk direkap
-  const [selectedEventId, setSelectedEventId] = useState<string>(
-    events[0]?.id || ""
-  )
+  const [selectedEventId, setSelectedEventId] = useState<string>("")
   const [isError, setIsError] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Tentukan event aktif secara deterministik (derived state saat render)
+  const activeEventId =
+    selectedEventId && events.some((e) => e.id === selectedEventId)
+      ? selectedEventId
+      : events[0]?.id || ""
+
+  const loadData = useCallback(async () => {
+    try {
+      const [evs, tiks] = await Promise.all([getEvents(), getTiket()])
+      setLocalEvents(evs)
+      setLocalTiketList(tiks)
+    } catch (err) {
+      console.error("Gagal mengambil data rekap dari Firestore:", err)
+      setIsError(true)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let ignore = false
+    Promise.all([getEvents(), getTiket()])
+      .then(([evs, tiks]) => {
+        if (!ignore) {
+          setLocalEvents(evs)
+          setLocalTiketList(tiks)
+          setIsLoading(false)
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          console.error("Gagal mengambil data rekap dari Firestore:", err)
+          setIsError(true)
+          setIsLoading(false)
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [])
 
   // Format rupiah
   const formatRupiah = (nominal: number) => {
@@ -44,13 +86,13 @@ export function RekapPage({
   }
 
   // Event terpilih
-  const selectedEvent = events.find((e) => e.id === selectedEventId)
+  const selectedEvent = events.find((e) => e.id === activeEventId)
 
   // Semua tiket untuk event yang dipilih
   const eventTikets = useMemo(() => {
-    if (!selectedEventId) return []
-    return tiketList.filter((t) => t.event_id === selectedEventId)
-  }, [tiketList, selectedEventId])
+    if (!activeEventId) return []
+    return tiketList.filter((t) => t.event_id === activeEventId)
+  }, [tiketList, activeEventId])
 
   // AC 5.4 No. 2:
   // Pendapatan HANYA dihitung dari tiket berstatus lunas dan hadir
@@ -92,34 +134,11 @@ export function RekapPage({
     .filter((t) => t.status === "dibatalkan")
     .reduce((sum, t) => sum + t.jumlah_tiket, 0)
 
-  // Simulasi refresh / reload (AC 5.4 No. 4)
+  // Refresh / reload dari Firestore (AC 5.4 No. 4)
   const handleRetry = () => {
     setIsLoading(true)
     setIsError(false)
-    setTimeout(() => {
-      setIsLoading(false)
-    }, 400)
-  }
-
-  // Jika belum ada event sama sekali
-  if (events.length === 0) {
-    return (
-      <div className="space-y-4">
-        <div className="border-b border-border pb-3">
-          <h2 className="text-xl font-bold tracking-tight">Modul Rekap</h2>
-          <p className="text-xs text-muted-foreground">
-            Ringkasan penjualan tiket, pendapatan, dan kehadiran per event.
-          </p>
-        </div>
-        <div className="flex min-h-[260px] flex-col items-center justify-center rounded-xl border border-dashed border-border p-6 text-center">
-          <BarChart3 className="size-10 text-muted-foreground" />
-          <h3 className="mt-3 text-sm font-semibold">Belum Ada Event</h3>
-          <p className="mt-1 text-xs text-muted-foreground max-w-xs">
-            Tambahkan event terlebih dahulu di Modul Event untuk melihat ringkasan rekap.
-          </p>
-        </div>
-      </div>
-    )
+    loadData()
   }
 
   // Tampilan Error State dengan tombol Coba Lagi (AC 5.4 No. 4)
@@ -134,7 +153,7 @@ export function RekapPage({
         </div>
         <ErrorStateView
           title="Gagal Memuat Data Rekap"
-          message="Koneksi terputus atau terjadi kesalahan saat mengambil data rekap acara."
+          message="Koneksi terputus atau terjadi kesalahan saat mengambil data rekap acara dari Firestore."
           onRetry={handleRetry}
         />
       </div>
@@ -154,6 +173,27 @@ export function RekapPage({
           <div className="h-24 bg-muted rounded-xl" />
         </div>
         <div className="h-32 bg-muted rounded-xl" />
+      </div>
+    )
+  }
+
+  // Jika belum ada event sama sekali
+  if (events.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="border-b border-border pb-3">
+          <h2 className="text-xl font-bold tracking-tight">Modul Rekap</h2>
+          <p className="text-xs text-muted-foreground">
+            Ringkasan penjualan tiket, pendapatan, dan kehadiran per event.
+          </p>
+        </div>
+        <div className="flex min-h-[260px] flex-col items-center justify-center rounded-xl border border-dashed border-border p-6 text-center">
+          <BarChart3 className="size-10 text-muted-foreground" />
+          <h3 className="mt-3 text-sm font-semibold">Belum Ada Event</h3>
+          <p className="mt-1 text-xs text-muted-foreground max-w-xs">
+            Tambahkan event terlebih dahulu di Modul Event untuk melihat ringkasan rekap.
+          </p>
+        </div>
       </div>
     )
   }
@@ -194,7 +234,7 @@ export function RekapPage({
         </label>
         <select
           id="rekap_event"
-          value={selectedEventId}
+          value={activeEventId}
           onChange={(e) => setSelectedEventId(e.target.value)}
           className="w-full rounded-xl border border-input bg-card px-3.5 py-2.5 text-xs font-medium focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring shadow-xs cursor-pointer"
         >

@@ -2,9 +2,9 @@
 
 import React, { useState } from "react"
 import { Navbar, type ModuleType } from "@/components/navbar"
-import { EventPage, SAMPLE_EVENTS } from "@/components/modules/event-page"
-import { PembeliPage, SAMPLE_PEMBELI } from "@/components/modules/pembeli-page"
-import { TiketPage, SAMPLE_TIKET } from "@/components/modules/tiket-page"
+import { EventPage } from "@/components/modules/event-page"
+import { PembeliPage } from "@/components/modules/pembeli-page"
+import { TiketPage } from "@/components/modules/tiket-page"
 import { RekapPage } from "@/components/modules/rekap-page"
 import type { EventDoc } from "@/types/event"
 import type { PembeliDoc } from "@/types/pembeli"
@@ -13,10 +13,10 @@ import type { TiketDoc } from "@/types/tiket"
 export default function Home() {
   const [activeModule, setActiveModule] = useState<ModuleType>("event")
 
-  // State bersama antar modul agar perubahan kuota tiket langsung sinkron ke event
-  const [events, setEvents] = useState<EventDoc[]>(SAMPLE_EVENTS)
-  const [pembeliList, setPembeliList] = useState<PembeliDoc[]>(SAMPLE_PEMBELI)
-  const [tiketList, setTiketList] = useState<TiketDoc[]>(SAMPLE_TIKET)
+  // State bersama antar modul yang sinkron dengan Cloud Firestore
+  const [events, setEvents] = useState<EventDoc[]>([])
+  const [pembeliList, setPembeliList] = useState<PembeliDoc[]>([])
+  const [tiketList, setTiketList] = useState<TiketDoc[]>([])
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -36,6 +36,7 @@ export default function Home() {
             events={events}
             setEvents={setEvents}
             pembeliList={pembeliList}
+            setPembeliList={setPembeliList}
             tiketList={tiketList}
             setTiketList={setTiketList}
           />
