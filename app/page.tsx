@@ -40,7 +40,9 @@ export default function Home() {
             setTiketList={setTiketList}
           />
         )}
-        {activeModule === "rekap" && <RekapPage />}
+        {activeModule === "rekap" && (
+          <RekapPage events={events} tiketList={tiketList} />
+        )}
       </main>
 
       {/* Subtle Footer for desktop */}
